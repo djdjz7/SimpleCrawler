@@ -28,7 +28,7 @@ public class Crawler
     public int FinishedTaskCount { get; private set; }
     public int ErrorTaskCount {get; private set;}
     private bool _isCrawling = false;
-    private static readonly Regex _linkRegex = new(@"(href|HREF|src|SRC) *= *""(.*?)""");
+    private static readonly Regex _linkRegex = new(@"(href *=|HREF *=|src *=|SRC *=|url *\(|URL *\() *\(? *[""'](.*?)[""']");
 
     public async Task<List<CrawlResult>> CrawlAsync(
         string entryPoint,
