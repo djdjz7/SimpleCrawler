@@ -1,10 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
-using System.Security.Cryptography.X509Certificates;
-using System.Text.Json;
-using System.Xml.Serialization;
-using CommandLine;
-using CommandLine.Text;
-using Microsoft.VisualBasic;
+﻿using CommandLine;
 
 namespace SimpleCrawler;
 
@@ -44,9 +38,15 @@ class Program
         await App(options);
     }
 
-    public static async Task App(Options options)
+    private static async Task App(Options options)
     {
-        using var crawler = new Crawler(options.Verbose, options.Timeout, options.LogPath, options.FollowRedirect);
+        using var crawler = new Crawler(
+            options.Verbose,
+            options.Timeout,
+            options.LogPath,
+            options.FollowRedirect,
+            options.UseDiskCache ? SearchDiskCache : null
+        );
         crawler.OnResourceCrawled += UpdateProgressCrawled;
         crawler.OnResourceDiscovered += UpdateProgressDiscovered;
         if (options.WriteSimultaneously)
@@ -65,28 +65,35 @@ class Program
         }
         Console.WriteLine("Waiting results to be flushed to disk...");
         await Task.WhenAll(_flushTasks);
-        Console.WriteLine($"Crawling finished with {crawler.ErrorTaskCount} errors");
+        Console.WriteLine($"Crawling finished with {crawler.ErrorTaskCount} errors.");
+        if (options.UseDiskCache)
+            Console.WriteLine($"{crawler.ExternallyResolvedCount} files were resolved with disk cache.");
     }
 
-    public static void Crawler_OnResourceCrawled_Write(CrawlResult? crawlResult, Crawler _)
+    private static void Crawler_OnResourceCrawled_Write(CrawlResult? crawlResult, Crawler _)
     {
         if (crawlResult is not null)
             _flushTasks.Add(FlushResultToDisk(crawlResult));
     }
 
-    public static void UpdateProgressCrawled(CrawlResult? _, Crawler crawler)
+    private static void UpdateProgressCrawled(CrawlResult? _, Crawler crawler)
     {
         UpdateProgress(_verbose, crawler);
     }
 
-    public static void UpdateProgressDiscovered(Uri _, Crawler crawler)
+    private static void UpdateProgressDiscovered(Uri _, Crawler crawler)
     {
         UpdateProgress(_verbose, crawler);
     }
 
-    public static async Task FlushResultToDisk(CrawlResult result)
+    private static async Task FlushResultToDisk(CrawlResult result)
     {
-        var uri = result.ResourceUri;
+        var filePath = DetermineLocalFilePath(result.ResourceUri, result.MimeType);
+        await File.WriteAllBytesAsync(filePath, result.ResourceData);
+    }
+
+    private static string DetermineLocalFilePath(Uri uri, string? mimeType)
+    {
         var remoteAbsolutePath = uri.AbsolutePath;
         if (remoteAbsolutePath.EndsWith('/'))
             remoteAbsolutePath += "index";
@@ -98,14 +105,14 @@ class Program
         if (!dir.Exists)
             dir.Create();
         var ext = Path.GetExtension(filePath);
-        if (string.IsNullOrEmpty(ext) && result.MimeType is not null)
+        if (string.IsNullOrEmpty(ext) && mimeType is not null)
         {
-            filePath += $".{result.MimeType.Split('/').Last()}";
+            filePath += $".{mimeType.Split('/').Last()}";
         }
-        await File.WriteAllBytesAsync(filePath, result.ResourceData);
+        return filePath;
     }
 
-    public static void UpdateProgress(bool verbose, Crawler crawler)
+    private static void UpdateProgress(bool verbose, Crawler crawler)
     {
         if (!verbose)
             Console.Clear();
@@ -115,7 +122,25 @@ class Program
         Console.WriteLine($"  Finished: {crawler.FinishedTaskCount}");
         Console.WriteLine($"Discovered: {crawler.DiscoveredTaskCount}");
         Console.WriteLine(
-            $"[{new('=', barWidth)}{new(' ', maxBarWidth - barWidth)}] {progress, 7:P2}"
+            $"[{new('=', barWidth)}{new(' ', maxBarWidth - barWidth)}] {progress,7:P2}"
         );
+    }
+
+    private static ContentRequestResponse SearchDiskCache(Uri uri)
+    {
+        var filePath = DetermineLocalFilePath(uri, null);
+        if (!File.Exists(filePath))
+            return new(false);
+        var ext = new FileInfo(filePath).Extension;
+        var content = File.ReadAllText(filePath);
+        if (string.IsNullOrEmpty(ext))
+            return new(true, false, content);
+        if (ext.StartsWith('.'))
+            ext = ext[1..];
+        if (string.IsNullOrEmpty(ext))
+            return new(true, false, content);
+        if (Crawler.KnownTextFileExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase))
+            return new(true, true, content);
+        return new(true, false, content);
     }
 }

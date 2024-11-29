@@ -1,6 +1,8 @@
 using System.Data;
 using System.Net;
+using System.Reflection.Metadata.Ecma335;
 using System.Text.RegularExpressions;
+using Microsoft.VisualBasic;
 
 namespace SimpleCrawler;
 
@@ -12,13 +14,21 @@ public class Crawler : IDisposable
     private StreamWriter _logWriter;
     public event Action<CrawlResult?, Crawler>? OnResourceCrawled;
     public event Action<Uri, Crawler>? OnResourceDiscovered;
+    private Func<Uri, ContentRequestResponse>? _externalResourceRequest;
 
-    public Crawler(bool verbose, int timeout, string logPath, bool? followRedirect = true)
+    public Crawler(
+        bool verbose,
+        int timeout,
+        string logPath,
+        bool? followRedirect = true,
+        Func<Uri, ContentRequestResponse>? resourceRequested = null
+    )
     {
         _verbose = verbose;
         _followRedirect = followRedirect ?? true;
         _timeout = timeout;
         _logWriter = new(logPath, true);
+        _externalResourceRequest = resourceRequested;
     }
 
     public static string[] KnownTextFileExtensions { get; set; } =
@@ -28,12 +38,13 @@ public class Crawler : IDisposable
     public int DiscoveredTaskCount { get; private set; }
     public int FinishedTaskCount { get; private set; }
     public int ErrorTaskCount { get; private set; }
+    public int ExternallyResolvedCount { get; private set; }
     private bool _isCrawling = false;
     private static readonly Regex _linkRegex = new(
         @"(href *=|HREF *=|src *=|SRC *=|url *\(|URL *\() *\(? *[""'](.*?)[""']"
     );
 
-    public async Task<List<CrawlResult>> CrawlAsync(
+    public async Task<IEnumerable<CrawlResult>> CrawlAsync(
         string entryPoint,
         bool forceDiscover,
         uint depth = 1
@@ -50,7 +61,7 @@ public class Crawler : IDisposable
         return result;
     }
 
-    private async Task<List<CrawlResult>> InternalCrawlAsync(
+    private async Task<IEnumerable<CrawlResult>> InternalCrawlAsync(
         Uri entryPoint,
         uint depth,
         bool forceDiscover
@@ -63,7 +74,29 @@ public class Crawler : IDisposable
             _tasks.Add(entryPoint, false);
         }
         DiscoveredTaskCount++;
+        Output($"[DSCVR] Now on {entryPoint}");
         OnResourceDiscovered?.Invoke(entryPoint, this);
+        if (_externalResourceRequest is not null)
+        {
+            var requestResponse = _externalResourceRequest(entryPoint);
+            if (requestResponse.Skip)
+            {
+                FinishedTaskCount++;
+                ExternallyResolvedCount++;
+                Output($"[CACHE] Using cached data of {entryPoint}");
+                OnResourceCrawled?.Invoke(null, this);
+                if (depth == 1)
+                    return [];
+                var content = requestResponse.Content;
+                if (content is null)
+                    return [];
+                if (!forceDiscover && requestResponse.IsTextFile != true)
+                    return [];
+                var tasks = DiscoverTasks(content, entryPoint, depth, forceDiscover);
+                return (await Task.WhenAll(tasks)).SelectMany(x => x);
+            }
+        }
+
         HttpClient? hostClient;
         lock (_clients)
         {
@@ -83,7 +116,6 @@ public class Crawler : IDisposable
             }
         }
 
-        Output($"[ NEW ] Now on {entryPoint}");
         HttpResponseMessage? response = null;
         try
         {
@@ -109,13 +141,7 @@ public class Crawler : IDisposable
                 return [thisResult];
             }
             var text = await response.Content.ReadAsStringAsync();
-            var matches = _linkRegex.Matches(text);
-            var tasks = matches.Select(x =>
-            {
-                var newUriString = x.Groups[2].Value;
-                var newUri = new Uri(entryPoint, newUriString);
-                return InternalCrawlAsync(newUri, depth - 1, forceDiscover);
-            });
+            var tasks = DiscoverTasks(text, entryPoint, depth, forceDiscover);
             var result = await Task.WhenAll(tasks);
             return [thisResult, .. result.SelectMany(x => x)];
         }
@@ -162,6 +188,22 @@ public class Crawler : IDisposable
                 return true;
         }
         return false;
+    }
+
+    private IEnumerable<Task<IEnumerable<CrawlResult>>> DiscoverTasks(
+        string content,
+        Uri currentUri,
+        uint currentDepth,
+        bool forceDiscover
+    )
+    {
+        var matches = _linkRegex.Matches(content);
+        return matches.Select(x =>
+        {
+            var newUriString = x.Groups[2].Value;
+            var newUri = new Uri(currentUri, newUriString);
+            return InternalCrawlAsync(newUri, currentDepth - 1, forceDiscover);
+        });
     }
 
     private void Output(string content)

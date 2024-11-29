@@ -77,10 +77,22 @@ class Options
         HelpText = "Base output directory to write result to."
     )]
     public required string OutputPath { get; set; }
+
     [Option(
-        'l', "log", Required = false,
+        'l',
+        "log",
+        Required = false,
         Default = "crawler.log",
         HelpText = "Where to write log."
     )]
-    public required string LogPath {get; set;}
+    public required string LogPath { get; set; }
+
+    [Option(
+        'c',
+        "disk-cache",
+        Required = false,
+        Default = false,
+        HelpText = "Whether to skip cached resources."
+    )]
+    public bool UseDiskCache { get; set; }
 }
