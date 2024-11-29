@@ -1,0 +1,5 @@
+.vscode/
+obj/
+crawl-result/
+bin/
+**/.DS_STORE
