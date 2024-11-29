@@ -1,15 +1,15 @@
 using System.Data;
 using System.Net;
-using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 
 namespace SimpleCrawler;
 
-public class Crawler
+public class Crawler : IDisposable
 {
     private bool _verbose;
     private bool _followRedirect;
     private int _timeout;
+    private StreamWriter _logWriter;
     public event Action<CrawlResult?, Crawler>? OnResourceCrawled;
     public event Action<Uri, Crawler>? OnResourceDiscovered;
 
@@ -18,6 +18,7 @@ public class Crawler
         _verbose = verbose;
         _followRedirect = followRedirect ?? true;
         _timeout = timeout;
+        _logWriter = new("crawler.log", true);
     }
 
     public static string[] KnownTextFileExtensions { get; set; } =
@@ -26,9 +27,11 @@ public class Crawler
     public Dictionary<Uri, bool> _tasks = new();
     public int DiscoveredTaskCount { get; private set; }
     public int FinishedTaskCount { get; private set; }
-    public int ErrorTaskCount {get; private set;}
+    public int ErrorTaskCount { get; private set; }
     private bool _isCrawling = false;
-    private static readonly Regex _linkRegex = new(@"(href *=|HREF *=|src *=|SRC *=|url *\(|URL *\() *\(? *[""'](.*?)[""']");
+    private static readonly Regex _linkRegex = new(
+        @"(href *=|HREF *=|src *=|SRC *=|url *\(|URL *\() *\(? *[""'](.*?)[""']"
+    );
 
     public async Task<List<CrawlResult>> CrawlAsync(
         string entryPoint,
@@ -79,15 +82,14 @@ public class Crawler
                 _clients.Add(entryPoint.Host, hostClient);
             }
         }
-        if (_verbose)
-            Console.WriteLine($"[ NEW ] Now on {entryPoint}");
+
+        Output($"[ NEW ] Now on {entryPoint}");
         HttpResponseMessage? response = null;
         try
         {
             response = await hostClient.GetAsync(entryPoint);
             response.EnsureSuccessStatusCode();
-            if (_verbose)
-                Console.WriteLine($"[DONE.] Successfully fetched {entryPoint}");
+            Output($"[DONE.] Successfully fetched {entryPoint}");
             var data = await response.Content.ReadAsByteArrayAsync();
             var thisResult = new CrawlResult()
             {
@@ -130,20 +132,16 @@ public class Crawler
                     $"Code {(int?)ex.StatusCode} at {entryPoint} tried to redirect but no location was found."
                 );
             }
-            if (_verbose)
-                Console.WriteLine(
-                    $"[REDIR] Code {(int?)ex.StatusCode} at {entryPoint} redirected to {location}"
-                );
+            Output($"[REDIR] Code {(int?)ex.StatusCode} at {entryPoint} redirected to {location}");
             FinishedTaskCount++;
             OnResourceCrawled?.Invoke(null, this);
             return await InternalCrawlAsync(location, depth, forceDiscover);
         }
         catch (Exception ex)
         {
-            if (_verbose)
-                Console.WriteLine(
-                    $"[ERROR] Failed to crawl {entryPoint},{Environment.NewLine}        Exception: {ex.Message}{(ex.InnerException is null ? "" : $"{Environment.NewLine}        Inner: {ex.InnerException.Message}")}"
-                );
+            Output(
+                $"[ERROR] Failed to crawl {entryPoint},{Environment.NewLine}        Exception: {ex.Message}{(ex.InnerException is null ? "" : $"{Environment.NewLine}        Inner: {ex.InnerException.Message}")}"
+            );
         }
         ErrorTaskCount++;
         FinishedTaskCount++;
@@ -164,5 +162,18 @@ public class Crawler
                 return true;
         }
         return false;
+    }
+
+    private void Output(string content)
+    {
+        if (_verbose)
+            Console.WriteLine(content);
+        _logWriter.WriteLine(content);
+    }
+
+    public void Dispose()
+    {
+        _logWriter.Flush();
+        _logWriter.Dispose();
     }
 }

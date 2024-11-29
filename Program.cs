@@ -13,6 +13,7 @@ class Program
     private static List<Task> _flushTasks = [];
     private static bool _verbose;
     private static string _output = null!;
+
     public static async Task Main(string[] args)
     {
         var result = Parser.Default.ParseArguments<Options>(args);
@@ -45,7 +46,7 @@ class Program
 
     public static async Task App(Options options)
     {
-        var crawler = new Crawler(options.Verbose, options.Timeout, options.FollowRedirect);
+        using var crawler = new Crawler(options.Verbose, options.Timeout, options.FollowRedirect);
         crawler.OnResourceCrawled += UpdateProgressCrawled;
         crawler.OnResourceDiscovered += UpdateProgressDiscovered;
         if (options.WriteSimultaneously)
@@ -108,13 +109,13 @@ class Program
     {
         if (!verbose)
             Console.Clear();
-        int maxBarWidth = Math.Min(60, Console.BufferWidth-10);
+        int maxBarWidth = Math.Min(60, Console.BufferWidth - 10);
         double progress = crawler.FinishedTaskCount * 1.0 / crawler.DiscoveredTaskCount;
         int barWidth = (int)(progress * maxBarWidth);
         Console.WriteLine($"  Finished: {crawler.FinishedTaskCount}");
         Console.WriteLine($"Discovered: {crawler.DiscoveredTaskCount}");
         Console.WriteLine(
-            $"[{new('=', barWidth)}{new(' ', maxBarWidth-barWidth)}] {progress,7:P2}"
+            $"[{new('=', barWidth)}{new(' ', maxBarWidth - barWidth)}] {progress, 7:P2}"
         );
     }
 }

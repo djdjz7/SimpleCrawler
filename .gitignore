@@ -3,3 +3,4 @@ obj/
 crawl-result/
 bin/
 **/.DS_STORE
+crawler.log
