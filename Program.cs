@@ -46,7 +46,7 @@ class Program
 
     public static async Task App(Options options)
     {
-        using var crawler = new Crawler(options.Verbose, options.Timeout, options.FollowRedirect);
+        using var crawler = new Crawler(options.Verbose, options.Timeout, options.LogPath, options.FollowRedirect);
         crawler.OnResourceCrawled += UpdateProgressCrawled;
         crawler.OnResourceDiscovered += UpdateProgressDiscovered;
         if (options.WriteSimultaneously)

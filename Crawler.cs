@@ -13,12 +13,12 @@ public class Crawler : IDisposable
     public event Action<CrawlResult?, Crawler>? OnResourceCrawled;
     public event Action<Uri, Crawler>? OnResourceDiscovered;
 
-    public Crawler(bool verbose, int timeout, bool? followRedirect = true)
+    public Crawler(bool verbose, int timeout, string logPath, bool? followRedirect = true)
     {
         _verbose = verbose;
         _followRedirect = followRedirect ?? true;
         _timeout = timeout;
-        _logWriter = new("crawler.log", true);
+        _logWriter = new(logPath, true);
     }
 
     public static string[] KnownTextFileExtensions { get; set; } =
