@@ -66,6 +66,24 @@ The crawler automatically follows redirect if status code is 301 or 302. You can
 ./SimpleCrawler https://baidu.com/ -r false    # This won't crawl any data as request returns 302
 ~~~
 
+### Log File
+Specify where to write the log file with `--log`, defaults to `crawler.log`.
+~~~sh
+./SimpleCrawler https://www.baidu.com/ -l elsewhere.log
+~~~
+
+### Using Disk Cache
+Skip cached file.
+
+> [!NOTE]
+>
+> Due to limitations of how file paths are inferred, not all cached files are skipped.
+
+~~~sh
+./SimpleCrawler https://www.baidu.com/ -c
+~~~
+
+
 ### Threading
 Sets the thread count in thread pool.
 
